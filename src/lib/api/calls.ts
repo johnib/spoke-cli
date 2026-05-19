@@ -68,19 +68,65 @@ interface ListResponse {
   calls?: Call[];
 }
 
+/**
+ * Spoke timestamp fields are milliseconds-since-epoch. Most Unix tooling
+ * emits seconds, so we accept either: values below ~year-5138-in-seconds
+ * (1e12) are treated as seconds and multiplied to ms.
+ */
+export function toMs(ts: number | undefined): number | undefined {
+  if (ts === undefined || ts === null) return undefined;
+  return ts < 1e12 ? ts * 1000 : ts;
+}
+
 export async function list(client: SpokeApiClient, opts: ListOpts = {}): Promise<Call[]> {
   const res = await client.get<ListResponse>('/calls', {
     includeActive: opts.includeActive,
     includeRecordingUrl: opts.includeRecordingUrl,
-    since: opts.since,
-    before: opts.before,
-    modified: opts.modified,
+    since: toMs(opts.since),
+    before: toMs(opts.before),
+    modified: toMs(opts.modified),
     contactNumber: opts.contactNumber,
     sortOrder: opts.sortOrder,
     next: opts.next,
     limit: opts.limit,
   });
   return res.data.calls ?? [];
+}
+
+/**
+ * Fetch ALL pages of /calls in the given window, following the meta.next
+ * cursor until exhausted. `onPage` is invoked after each page is collected
+ * — useful for progress reporting on long ranges.
+ */
+export async function listAll(
+  client: SpokeApiClient,
+  opts: ListOpts = {},
+  onPage?: (pageCount: number, totalSoFar: number) => void,
+): Promise<Call[]> {
+  const all: Call[] = [];
+  let pageIdx = 0;
+  let cursor: string | undefined = opts.next;
+  while (true) {
+    const res = await client.get<ListResponse>('/calls', {
+      includeActive: opts.includeActive,
+      includeRecordingUrl: opts.includeRecordingUrl,
+      since: toMs(opts.since),
+      before: toMs(opts.before),
+      modified: toMs(opts.modified),
+      contactNumber: opts.contactNumber,
+      sortOrder: opts.sortOrder,
+      next: cursor,
+      limit: opts.limit ?? 1000,
+    });
+    const batch = res.data.calls ?? [];
+    all.push(...batch);
+    pageIdx += 1;
+    if (onPage) onPage(pageIdx, all.length);
+    const next = res.data.meta?.next ?? null;
+    if (!next || batch.length === 0) break;
+    cursor = next;
+  }
+  return all;
 }
 
 export async function get(

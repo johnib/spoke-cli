@@ -4,6 +4,26 @@ import { formatRaw } from '../lib/output/format';
 import { globalOpts, makeClient } from './_shared';
 import { ValidationError } from '../lib/errors';
 
+/**
+ * Generic page extractor for the Spoke envelope shape `{ meta: { next }, <resource>: [...] }`
+ * — works across /calls, /users, /webhooks, /trunks, /directory, etc. without knowing
+ * the resource name. Falls back to bare arrays or top-level `entries`/`items` if present.
+ */
+export function extractPage(page: any): { items: any[]; next?: string | null } {
+  if (Array.isArray(page)) return { items: page, next: null };
+  const next = page?.meta?.next ?? page?.next ?? null;
+  // Prefer the well-known keys.
+  for (const k of ['entries', 'items', 'calls', 'users', 'webhooks', 'trunks', 'phonebooks', 'contacts', 'transcripts']) {
+    if (Array.isArray(page?.[k])) return { items: page[k], next };
+  }
+  // Last resort: pick the first array-valued top-level key.
+  for (const [k, v] of Object.entries(page ?? {})) {
+    if (k === 'meta') continue;
+    if (Array.isArray(v)) return { items: v as any[], next };
+  }
+  return { items: [], next };
+}
+
 function parseField(input: string): [string, unknown] {
   const idx = input.indexOf('=');
   if (idx === -1) throw new ValidationError(`--field expects key=value, got "${input}"`);
@@ -83,10 +103,7 @@ export async function runApi(cmd: Command, path: string, opts: ApiCommandOptions
 
   if (opts.paginate) {
     const all: any[] = [];
-    for await (const batch of client.paginate(urlPath, (page: any) => {
-      const items = Array.isArray(page) ? page : page.entries ?? page.items ?? [];
-      return { items, next: page.next };
-    }, queryParams)) {
+    for await (const batch of client.paginate(urlPath, extractPage, queryParams)) {
       all.push(...batch);
     }
     await formatRaw(all, globalOpts(cmd));

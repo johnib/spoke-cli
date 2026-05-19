@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import * as calls from '../../lib/api/calls';
 import { formatList } from '../../lib/output/format';
 import { globalOpts, makeClient } from '../_shared';
+import { logger } from '../../lib/logger';
 
 export async function runList(cmd: Command, opts: {
   includeActive?: boolean;
@@ -11,9 +12,14 @@ export async function runList(cmd: Command, opts: {
   contactNumber?: string;
   limit?: number;
   sortOrder?: 'ascending' | 'descending';
+  all?: boolean;
 }): Promise<void> {
   const client = makeClient(cmd);
-  const arr = await calls.list(client, opts);
+  const arr = opts.all
+    ? await calls.listAll(client, opts, (pageIdx, total) => {
+        logger.debug(`fetched page ${pageIdx} (${total} calls so far)`);
+      })
+    : await calls.list(client, opts);
   await formatList(arr, {
     ...globalOpts(cmd),
     columns: [
@@ -34,12 +40,29 @@ export function listCommand(parent: Command): void {
     .command('list')
     .description('List calls')
     .option('--no-active', 'Exclude active calls (default: include)')
-    .option('--since <ts>', 'Unix timestamp lower bound', (v) => parseInt(v, 10))
-    .option('--before <ts>', 'Unix timestamp upper bound', (v) => parseInt(v, 10))
-    .option('--modified <ts>', 'Return calls modified since this UNIX timestamp', (v) => parseInt(v, 10))
+    .option(
+      '--since <ts>',
+      'Lower bound — Unix timestamp (seconds OR milliseconds; auto-detected)',
+      (v) => parseInt(v, 10),
+    )
+    .option(
+      '--before <ts>',
+      'Upper bound — Unix timestamp (seconds OR milliseconds; auto-detected)',
+      (v) => parseInt(v, 10),
+    )
+    .option(
+      '--modified <ts>',
+      'Return calls modified since this timestamp (seconds OR ms; auto-detected). Recommended for incremental polling.',
+      (v) => parseInt(v, 10),
+    )
     .option('--contact-number <e164>', 'Filter by contact number (E.164)')
     .option('--sort-order <order>', 'ascending or descending')
-    .option('--limit <n>', 'Items per page', (v) => parseInt(v, 10))
+    .option('--limit <n>', 'Items per page (default 100, max 1000)', (v) => parseInt(v, 10))
+    .option(
+      '--all',
+      'Fetch every page by following meta.next cursors. Use with --since/--before to bound the range.',
+      false,
+    )
     .action(async function (this: Command, opts) {
       await runList(this, { includeActive: opts.active !== false, ...opts });
     });

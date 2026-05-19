@@ -91,6 +91,95 @@ describe('api/calls', () => {
     });
   });
 
+  describe('toMs (seconds-or-ms coercion)', () => {
+    it('multiplies seconds-magnitude values by 1000', () => {
+      expect(calls.toMs(1715040000)).toBe(1715040000_000);
+    });
+    it('passes through ms-magnitude values unchanged', () => {
+      expect(calls.toMs(1715040000000)).toBe(1715040000000);
+    });
+    it('handles undefined', () => {
+      expect(calls.toMs(undefined)).toBeUndefined();
+    });
+    it('treats zero as undefined-like (zero in ms is still zero)', () => {
+      expect(calls.toMs(0)).toBe(0);
+    });
+  });
+
+  it('list auto-converts since/before from seconds to ms', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/calls')
+      .query({ since: '1715040000000', before: '1715299200000' })
+      .reply(200, { meta: {}, calls: [] });
+    const c = new SpokeApiClient({ active: profile });
+    await calls.list(c, { since: 1715040000, before: 1715299200 });
+  });
+
+  it('list passes ms-magnitude values through unchanged', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/calls')
+      .query({ since: '1715040000000' })
+      .reply(200, { meta: {}, calls: [] });
+    const c = new SpokeApiClient({ active: profile });
+    await calls.list(c, { since: 1715040000000 });
+  });
+
+  describe('listAll', () => {
+    it('follows meta.next until exhausted', async () => {
+      mockTokenEndpoint({ persistent: true });
+      nock('https://integration.spokephone.com')
+        .get('/calls')
+        .query({ limit: '1000' })
+        .reply(200, { meta: { next: 'cursor-1' }, calls: [{ id: 'c1' }, { id: 'c2' }] });
+      nock('https://integration.spokephone.com')
+        .get('/calls')
+        .query({ limit: '1000', next: 'cursor-1' })
+        .reply(200, { meta: { next: 'cursor-2' }, calls: [{ id: 'c3' }] });
+      nock('https://integration.spokephone.com')
+        .get('/calls')
+        .query({ limit: '1000', next: 'cursor-2' })
+        .reply(200, { meta: { next: null }, calls: [{ id: 'c4' }] });
+
+      const c = new SpokeApiClient({ active: profile });
+      const all = await calls.listAll(c);
+      expect(all.map((x) => x.id)).toEqual(['c1', 'c2', 'c3', 'c4']);
+    });
+
+    it('stops on empty calls array even if next is present', async () => {
+      mockTokenEndpoint();
+      nock('https://integration.spokephone.com')
+        .get('/calls')
+        .query({ limit: '1000' })
+        .reply(200, { meta: { next: 'cursor' }, calls: [] });
+      const c = new SpokeApiClient({ active: profile });
+      expect(await calls.listAll(c)).toEqual([]);
+    });
+
+    it('reports per-page progress via the onPage callback', async () => {
+      mockTokenEndpoint({ persistent: true });
+      nock('https://integration.spokephone.com').get('/calls').query({ limit: '1000' })
+        .reply(200, { meta: { next: 'c1' }, calls: [{ id: 'a' }] });
+      nock('https://integration.spokephone.com').get('/calls').query({ limit: '1000', next: 'c1' })
+        .reply(200, { meta: {}, calls: [{ id: 'b' }] });
+      const c = new SpokeApiClient({ active: profile });
+      const pages: Array<[number, number]> = [];
+      await calls.listAll(c, {}, (p, t) => pages.push([p, t]));
+      expect(pages).toEqual([[1, 1], [2, 2]]);
+    });
+
+    it('auto-converts since/before in listAll too', async () => {
+      mockTokenEndpoint();
+      nock('https://integration.spokephone.com')
+        .get('/calls')
+        .query({ since: '1715040000000', limit: '1000' })
+        .reply(200, { meta: {}, calls: [] });
+      const c = new SpokeApiClient({ active: profile });
+      await calls.listAll(c, { since: 1715040000 });
+    });
+  });
+
   describe('formatDurationMs', () => {
     it('renders milliseconds as HH:MM:SS', () => {
       expect(calls.formatDurationMs(16976)).toBe('00:00:16');
