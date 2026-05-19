@@ -24,25 +24,7 @@ describe('api/messages', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it('list passes filters as query params', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com')
-      .get('/conversationMessages')
-      .query({ direction: 'inbound', channel: 'sms' })
-      .reply(200, [{ id: 'm1', direction: 'inbound', channel: 'sms' }]);
-    const c = new SpokeApiClient({ active: profile });
-    const out = await messages.list(c, { direction: 'inbound', channel: 'sms' });
-    expect(out).toHaveLength(1);
-  });
-
-  it('get fetches by id', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/conversationMessages/m1').reply(200, { id: 'm1' });
-    const c = new SpokeApiClient({ active: profile });
-    expect((await messages.get(c, 'm1')).id).toBe('m1');
-  });
-
-  it('send POSTs the conversation message', async () => {
+  it('send POSTs to /conversationMessages', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .post('/conversationMessages', { to: '+1', from: '101', body: 'hi', channel: 'sms' })
@@ -53,6 +35,15 @@ describe('api/messages', () => {
   });
 
   it('send defaults channel to sms', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .post('/conversationMessages', (body: any) => body.channel === 'sms')
+      .reply(201, {});
+    const c = new SpokeApiClient({ active: profile });
+    await messages.send(c, { to: '+1', from: '101', body: 'hi' });
+  });
+
+  it('send honours whatsapp channel', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .post('/conversationMessages', (body: any) => body.channel === 'whatsapp')

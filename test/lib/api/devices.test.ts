@@ -24,45 +24,55 @@ describe('api/devices', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  function setupTrunkChain() {
-    mockTokenEndpoint({ persistent: true });
-    nock('https://integration.spokephone.com').get('/trunks').reply(200, [{ id: 't1' }]);
-    nock('https://integration.spokephone.com').get('/trunks/t1/trunkDevices').reply(200, [
-      { id: 'dev_a', userName: 'Alice', userId: 'u1', type: 'mobile', platform: 'iOS', active: true, status: 'active' },
-      { id: 'dev_b', userName: 'Bob', userId: 'u2', type: 'desktop', platform: 'macOS', active: false, status: 'idle' },
-    ]);
-  }
-
-  it('list flattens trunkDevices across trunks', async () => {
-    setupTrunkChain();
+  it('list filters directory to type=device by default', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ limit: '1000' }).reply(200, {
+      meta: {},
+      entries: [
+        { id: 'd1', displayName: 'Reception phone', type: 'device' },
+        { id: 'u1', displayName: 'Alice', type: 'user' },
+      ],
+    });
     const c = new SpokeApiClient({ active: profile });
     const arr = await devices.list(c);
-    expect(arr).toHaveLength(2);
+    expect(arr).toHaveLength(1);
+    expect(arr[0].id).toBe('d1');
   });
 
-  it('list filters by user/type/active', async () => {
-    setupTrunkChain();
+  it('list with --type trunkDevice', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ limit: '1000' }).reply(200, {
+      meta: {},
+      entries: [
+        { id: 'td1', displayName: 'SIP A', type: 'trunkDevice' },
+      ],
+    });
     const c = new SpokeApiClient({ active: profile });
-    const onlyAlice = await devices.list(c, { user: 'Alice' });
-    expect(onlyAlice.map((d) => d.id)).toEqual(['dev_a']);
-    setupTrunkChain();
-    const onlyMobile = await devices.list(new SpokeApiClient({ active: profile }), { type: 'mobile' });
-    expect(onlyMobile.map((d) => d.id)).toEqual(['dev_a']);
-    setupTrunkChain();
-    const onlyActive = await devices.list(new SpokeApiClient({ active: profile }), { active: true });
-    expect(onlyActive.map((d) => d.id)).toEqual(['dev_a']);
+    const arr = await devices.list(c, { type: 'trunkDevice' });
+    expect(arr).toHaveLength(1);
   });
 
-  it('get returns the device with the matching id', async () => {
-    setupTrunkChain();
+  it('list filters by user-substring', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ limit: '1000' }).reply(200, {
+      meta: {},
+      entries: [
+        { id: 'd1', displayName: 'Alice phone', type: 'device' },
+        { id: 'd2', displayName: 'Bob phone', type: 'device' },
+      ],
+    });
     const c = new SpokeApiClient({ active: profile });
-    const d = await devices.get(c, 'dev_a');
-    expect(d.id).toBe('dev_a');
+    const arr = await devices.list(c, { user: 'alice' });
+    expect(arr.map((d) => d.id)).toEqual(['d1']);
   });
 
-  it('get throws when device not found', async () => {
-    setupTrunkChain();
+  it('get throws when matched entry is not a device', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '101' }).reply(200, {
+      meta: {},
+      entries: [{ id: 'u1', extension: '101', type: 'user', displayName: 'Alice' }],
+    });
     const c = new SpokeApiClient({ active: profile });
-    await expect(devices.get(c, 'absent')).rejects.toThrow(/not found/);
+    await expect(devices.get(c, '101')).rejects.toThrow(/not a device/);
   });
 });

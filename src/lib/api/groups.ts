@@ -1,10 +1,15 @@
 import { SpokeApiClient } from './client';
 import * as directory from './directory';
-import { DirectoryEntry } from './directory';
+import { DirectoryEntry, Availability } from './directory';
 
-export interface Group extends DirectoryEntry {
-  routing?: string;
-  members?: DirectoryEntry[];
+/**
+ * A Spoke team (call group / hunt group). Member list is `teamMembers`,
+ * member availability counts are on the nested `availability` object.
+ */
+export interface Team extends DirectoryEntry {
+  type: 'team';
+  teamMembers?: DirectoryEntry[];
+  availability?: Availability;
 }
 
 export interface ListOpts {
@@ -14,49 +19,43 @@ export interface ListOpts {
   limit?: number;
 }
 
-export async function list(client: SpokeApiClient, opts: ListOpts = {}): Promise<Group[]> {
+export async function list(client: SpokeApiClient, opts: ListOpts = {}): Promise<Team[]> {
   const entries = await directory.list(client, {
-    type: 'group',
+    type: 'team',
     available: opts.available,
     hidden: opts.hidden,
+    limit: opts.limit ?? 1000,
     next: opts.next,
-    limit: opts.limit,
   });
-  return entries as Group[];
+  return entries as Team[];
 }
 
-export async function get(client: SpokeApiClient, idOrName: string): Promise<Group> {
-  const entry = await directory.get(client, idOrName);
-  if (entry.type && entry.type !== 'callGroup') {
-    // Still return it; the caller decides.
-  }
-  return entry as Group;
+export async function get(client: SpokeApiClient, idOrExt: string): Promise<Team> {
+  const entry = await directory.get(client, idOrExt);
+  return entry as Team;
 }
 
 export async function members(
   client: SpokeApiClient,
-  idOrName: string,
+  idOrExt: string,
   opts: { available?: boolean } = {},
 ): Promise<DirectoryEntry[]> {
-  const g = await get(client, idOrName);
-  const ms = g.members ?? [];
-  if (opts.available) return ms.filter((m) => m.available || m.status === 'available');
+  const g = await get(client, idOrExt);
+  const ms = g.teamMembers ?? [];
+  if (opts.available) return ms.filter((m) => m.availability?.status === 'available');
   return ms;
 }
 
 export async function availability(
   client: SpokeApiClient,
-  idOrName: string,
-): Promise<{ group: Group; total: number; available: number }> {
-  const g = await get(client, idOrName);
-  const ms = g.members ?? [];
-  const avail = ms.filter((m) => m.available || m.status === 'available').length;
-  return { group: g, total: ms.length, available: avail };
-}
-
-export function redirectUrl(id: string, returnTo?: string): string {
-  const base = `https://spoke-api-service.twil.io/redirect`;
-  const qs = new URLSearchParams({ ext: id, group: '1' });
-  if (returnTo) qs.set('returnTo', returnTo);
-  return `${base}?${qs.toString()}`;
+  idOrExt: string,
+): Promise<{ group: Team; total: number; available: number; summary?: string }> {
+  const g = await get(client, idOrExt);
+  // Prefer the server-computed counts when present.
+  const a = g.availability;
+  const total = a?.totalMembers ?? (g.teamMembers ?? []).length;
+  const avail =
+    a?.totalAvailable ??
+    (g.teamMembers ?? []).filter((m) => m.availability?.status === 'available').length;
+  return { group: g, total, available: avail, summary: a?.availabilitySummary };
 }

@@ -12,7 +12,8 @@ export async function runList(cmd: Command): Promise<void> {
       { header: 'ID', get: (w) => w.id ?? '' },
       { header: 'URL', get: (w) => w.url },
       { header: 'EVENTS', get: (w) => (w.events ?? []).join(',') },
-      { header: 'STATUS', get: (w) => w.status ?? 'active' },
+      { header: 'MODE', get: (w) => w.mode ?? '' },
+      { header: 'ENABLED', get: (w) => Boolean(w.enabled) },
     ],
   });
 }

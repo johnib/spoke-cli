@@ -19,63 +19,74 @@ describe('spoke user commands', () => {
     delete process.env.SPOKE_CLIENT_SECRET;
   });
 
-  it('list prints users', async () => {
+  it('list prints users from .users envelope', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/users').reply(200, [
-      { id: 'u1', extension: '101', displayName: 'Alice', email: 'a@x' },
-    ]);
-    const result = await runCli(['user', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Alice');
-  });
-
-  it('get by id', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/users/101').reply(200, {
-      id: 'u1', extension: '101', displayName: 'Alice',
+    nock('https://integration.spokephone.com').get('/users').reply(200, {
+      meta: {},
+      users: [{ id: 'u1', extension: '101', displayName: 'Alice', email: 'a@x', availability: { availabilitySummary: 'Available', status: 'available' } }],
     });
-    const result = await runCli(['user', 'get', '101']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Alice');
+    const r = await runCli(['user', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Alice');
   });
 
   it('get --me hits /users/me', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com').get('/users/me').reply(200, { id: 'self', displayName: 'Me' });
-    const result = await runCli(['user', 'get', '--me']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Me');
+    const r = await runCli(['user', 'get', '--me']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Me');
   });
 
-  it('availability prints status', async () => {
+  it('get by extension resolves via directory', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/users/101').reply(200, {
-      id: 'u1', extension: '101', displayName: 'Alice', status: 'available', available: true,
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '101' }).reply(200, {
+      meta: {},
+      entries: [{ id: 'u1', extension: '101', displayName: 'Alice', type: 'user' }],
     });
-    const result = await runCli(['user', 'availability', '101']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Available:');
-    expect(result.stdout).toContain('true');
+    const r = await runCli(['user', 'get', '101']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Alice');
   });
 
-  it('set-availability PATCHes', async () => {
+  it('availability prints status from .availability', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').patch('/users/101', { status: 'busy' }).reply(200, {
-      id: 'u1', extension: '101', status: 'busy',
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '101' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 'u1', extension: '101', displayName: 'Alice', type: 'user',
+        availability: { status: 'available', availabilitySummary: 'Available' },
+      }],
     });
-    const result = await runCli(['user', 'set-availability', '101', '--status', 'busy']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('busy');
+    const r = await runCli(['user', 'availability', '101']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('available');
+    expect(r.stdout).toContain('Available');
   });
 
-  it('set-availability rejects invalid status', async () => {
-    const result = await runCli(['user', 'set-availability', '101', '--status', 'silly']);
-    expect(result.exitCode).toBe(1);
+  it('redirect-url prints entry.twimlRedirectUrl from the API', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '101' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 'u1', extension: '101', displayName: 'Alice', type: 'user',
+        twimlRedirectUrl: 'https://api.spokephone.com/telephony/redirect?extension=101&organisationId=org-1',
+      }],
+    });
+    const r = await runCli(['user', 'redirect-url', '101']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('api.spokephone.com/telephony/redirect');
+    expect(r.stdout).toContain('extension=101');
+    expect(r.stdout).toContain('organisationId=org-1');
   });
 
-  it('redirect-url prints a URL', async () => {
-    const result = await runCli(['user', 'redirect-url', '101']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('ext=101');
+  it('redirect-url exits 3 when entry has no twimlRedirectUrl', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '101' }).reply(200, {
+      meta: {},
+      entries: [{ id: 'u1', extension: '101', type: 'user' }],
+    });
+    const r = await runCli(['user', 'redirect-url', '101']);
+    expect(r.exitCode).toBe(3);
   });
 });

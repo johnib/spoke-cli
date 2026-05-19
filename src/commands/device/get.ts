@@ -9,11 +9,11 @@ export async function runGet(cmd: Command, id: string): Promise<void> {
   await formatItem(d, {
     ...globalOpts(cmd),
     fields: [
-      { label: 'ID', get: (x) => x.id },
-      { label: 'User', get: (x) => x.userName ?? x.userId ?? '' },
+      { label: 'ID', get: (x) => x.id ?? '' },
+      { label: 'Name', get: (x) => x.displayName ?? '' },
       { label: 'Type', get: (x) => x.type ?? '' },
-      { label: 'Platform', get: (x) => x.platform ?? '' },
-      { label: 'Status', get: (x) => x.status ?? (x.active ? 'active' : 'idle') },
+      { label: 'Extension', get: (x) => x.extension ?? '' },
+      { label: 'TwiML URL', get: (x) => x.twimlRedirectUrl ?? '' },
     ],
   });
 }
@@ -21,7 +21,7 @@ export async function runGet(cmd: Command, id: string): Promise<void> {
 export function getCommand(parent: Command): void {
   parent
     .command('get <id>')
-    .description('Get a single device')
+    .description('Get a single device (UUID, extension, or name)')
     .action(async function (this: Command, id: string) {
       await runGet(this, id);
     });

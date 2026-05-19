@@ -12,8 +12,10 @@ export async function runAvailability(cmd: Command, idOrName: string, opts: { wa
       ...globalOpts(cmd),
       fields: [
         { label: 'Group', get: (x) => x.group.displayName ?? idOrName },
-        { label: 'Extension', get: (x) => x.group.extension ?? idOrName },
+        { label: 'Extension', get: (x) => x.group.extension ?? '' },
         { label: 'Available', get: (x) => `${x.available}/${x.total}` },
+        { label: 'Status', get: (x) => x.group.availability?.status ?? '' },
+        { label: 'Summary', get: (x) => x.summary ?? '' },
       ],
     });
   };
@@ -31,8 +33,8 @@ export async function runAvailability(cmd: Command, idOrName: string, opts: { wa
 export function availabilityCommand(parent: Command): void {
   parent
     .command('availability <idOrName>')
-    .description('Show available/total member count')
-    .option('--watch', 'Poll every 5s', false)
+    .description('Show available/total member count for a group')
+    .option('--watch', 'Poll every 5s and update in place', false)
     .action(async function (this: Command, idOrName: string, opts) {
       await runAvailability(this, idOrName, opts);
     });

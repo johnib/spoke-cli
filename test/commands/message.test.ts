@@ -19,36 +19,20 @@ describe('spoke message commands', () => {
     delete process.env.SPOKE_CLIENT_SECRET;
   });
 
-  it('list prints messages', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/conversationMessages').reply(200, [
-      { id: 'm1', direction: 'inbound', from: '+1', to: '+2', channel: 'sms', body: 'hi' },
-    ]);
-    const result = await runCli(['message', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('m1');
-  });
-
-  it('get prints message', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/conversationMessages/m1').reply(200, { id: 'm1', body: 'hi' });
-    const result = await runCli(['message', 'get', 'm1']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('hi');
-  });
-
-  it('send POSTs the message', async () => {
+  it('send POSTs to /conversationMessages', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .post('/conversationMessages', { to: '+1', from: '101', body: 'hi', channel: 'sms' })
       .reply(201, { id: 'm1', status: 'queued' });
-    const result = await runCli(['message', 'send', '--to', '+1', '--from', '101', '--body', 'hi']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('m1');
+    const r = await runCli(['message', 'send', '--to', '+1', '--from', '101', '--body', 'hi']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('m1');
   });
 
-  it('send refuses missing --body', async () => {
-    const result = await runCli(['message', 'send', '--to', '+1', '--from', '101']);
-    expect(result.exitCode).not.toBe(0);
+  it('only send subcommand is registered (no list/get)', async () => {
+    const r = await runCli(['message', '--help']);
+    expect(r.stdout).toContain('send');
+    expect(r.stdout).not.toContain('  list');
+    expect(r.stdout).not.toMatch(/^\s+get\s+/m);
   });
 });

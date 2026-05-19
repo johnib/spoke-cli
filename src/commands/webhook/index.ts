@@ -3,7 +3,6 @@ import { listCommand } from './list';
 import { createCommand } from './create';
 import { deleteCommand } from './delete';
 import { forwardCommand } from './forward';
-import { replayCommand } from './replay';
 
 export function registerWebhookCommands(program: Command): void {
   const w = program.command('webhook').description('Manage event subscriptions');
@@ -11,5 +10,4 @@ export function registerWebhookCommands(program: Command): void {
   createCommand(w);
   deleteCommand(w);
   forwardCommand(w);
-  replayCommand(w);
 }

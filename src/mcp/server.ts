@@ -5,6 +5,7 @@ import * as directory from '../lib/api/directory';
 import * as users from '../lib/api/users';
 import * as groups from '../lib/api/groups';
 import * as calls from '../lib/api/calls';
+import * as voicemails from '../lib/api/voicemails';
 import * as messages from '../lib/api/messages';
 import * as webhooks from '../lib/api/webhooks';
 
@@ -12,7 +13,6 @@ export interface ToolDef {
   name: string;
   description: string;
   inputSchema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
-  /** Executes the tool given parsed args; must return JSON-serializable data. */
   run: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
@@ -24,7 +24,7 @@ export function buildTools(): ToolDef[] {
   return [
     {
       name: 'spoke_directory_list',
-      description: 'List Spoke directory entries (users, groups, devices).',
+      description: 'List Spoke directory entries (users, teams, devices). Filters: type, available, hidden, limit.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -38,7 +38,7 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: 'spoke_directory_get',
-      description: 'Get a directory entry by extension or name.',
+      description: 'Get a directory entry by UUID, extension, or display name.',
       inputSchema: {
         type: 'object',
         properties: { idOrName: { type: 'string' } },
@@ -48,7 +48,7 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: 'spoke_user_availability',
-      description: 'Check real-time availability of a Spoke user.',
+      description: 'Check the presence/availability of a Spoke user (extension, UUID, or email).',
       inputSchema: {
         type: 'object',
         properties: { id: { type: 'string' } },
@@ -58,7 +58,7 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: 'spoke_group_availability',
-      description: 'Show available/total member count for a call group.',
+      description: 'Show available/total member count for a call group (team).',
       inputSchema: {
         type: 'object',
         properties: { id: { type: 'string' } },
@@ -68,7 +68,7 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: 'spoke_group_members',
-      description: 'List members of a Spoke call group.',
+      description: 'List members of a Spoke team.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -77,47 +77,56 @@ export function buildTools(): ToolDef[] {
         },
         required: ['id'],
       },
-      run: async (args) => groups.members(newClient(), String(args.id), { available: Boolean(args.available) }),
+      run: async (args) =>
+        groups.members(newClient(), String(args.id), { available: Boolean(args.available) }),
     },
     {
-      name: 'spoke_call_transfer',
-      description: 'Transfer an active call to a Spoke extension or +E164 number.',
+      name: 'spoke_call_list',
+      description: 'List recent calls. Filters: includeActive, since (unix ts), before, modified, contactNumber, limit, sortOrder.',
       inputSchema: {
         type: 'object',
         properties: {
-          sid: { type: 'string' },
-          to: { type: 'string' },
-          warm: { type: 'boolean' },
+          includeActive: { type: 'boolean' },
+          since: { type: 'number' },
+          before: { type: 'number' },
+          modified: { type: 'number' },
+          contactNumber: { type: 'string' },
+          sortOrder: { type: 'string', enum: ['ascending', 'descending'] },
+          limit: { type: 'number' },
         },
-        required: ['sid', 'to'],
       },
-      run: async (args) => {
-        const to = String(args.to);
-        const isNumber = to.startsWith('+');
-        return calls.redirect(newClient(), String(args.sid), {
-          extension: isNumber ? undefined : to,
-          number: isNumber ? to : undefined,
-        });
-      },
+      run: async (args) => calls.list(newClient(), args as any),
     },
     {
-      name: 'spoke_call_twiml_url',
-      description: 'Generate a TwiML redirect URL for a Spoke extension.',
+      name: 'spoke_call_get',
+      description: 'Get a single call by Spoke call id.',
       inputSchema: {
         type: 'object',
         properties: {
-          extension: { type: 'string' },
-          returnTo: { type: 'string' },
+          id: { type: 'string' },
+          includeRecordingUrl: { type: 'boolean' },
         },
-        required: ['extension'],
+        required: ['id'],
       },
-      run: async (args) => ({
-        url: calls.twimlRedirectUrl({ extension: String(args.extension), returnTo: args.returnTo as string | undefined }),
-      }),
+      run: async (args) =>
+        calls.get(newClient(), String(args.id), { includeRecordingUrl: Boolean(args.includeRecordingUrl) }),
+    },
+    {
+      name: 'spoke_voicemail_list',
+      description: 'List voicemails (derived view over /calls — calls that landed in voicemail).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          since: { type: 'number' },
+          before: { type: 'number' },
+          limit: { type: 'number' },
+        },
+      },
+      run: async (args) => voicemails.list(newClient(), args as any),
     },
     {
       name: 'spoke_message_send',
-      description: 'Send an SMS or WhatsApp message.',
+      description: 'Send an outbound SMS or WhatsApp message. (The API does not expose a read endpoint; subscribe to the conversation.message.created webhook to receive.)',
       inputSchema: {
         type: 'object',
         properties: {

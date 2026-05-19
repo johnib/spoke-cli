@@ -9,9 +9,11 @@ export async function runMembers(cmd: Command, idOrName: string, opts: { availab
   await formatList(arr, {
     ...globalOpts(cmd),
     columns: [
-      { header: 'EXTENSION', get: (m) => m.extension ?? m.id ?? '' },
+      { header: 'EXTENSION', get: (m) => m.extension ?? '' },
       { header: 'NAME', get: (m) => m.displayName ?? '' },
-      { header: 'STATUS', get: (m) => m.status ?? (m.available ? 'available' : 'unknown') },
+      { header: 'EMAIL', get: (m) => m.email ?? '' },
+      { header: 'STATUS', get: (m) => m.availability?.status ?? '' },
+      { header: 'SUMMARY', get: (m) => m.availability?.availabilitySummary ?? '' },
     ],
   });
 }

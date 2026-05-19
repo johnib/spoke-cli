@@ -1,78 +1,132 @@
 import { SpokeApiClient } from './client';
 
+/** A Spoke directory entry — covers users, teams (call groups), and devices. */
 export interface DirectoryEntry {
-  /** The Spoke directory entry id — typically the extension. */
-  id?: string;
+  /** Opaque UUID of the entry. */
+  id: string;
+  /** Display name (e.g. "Alice Cohen" or "Sales Team"). */
+  displayName: string;
+  /** Numeric extension as a string. */
   extension?: string;
-  displayName?: string;
-  type?: 'user' | 'callGroup' | 'device' | string;
+  /** Discriminator. Real values: "user" | "team" | "device" | "trunkUser" | "trunkDevice" | "trunkQueue". */
+  type: 'user' | 'team' | 'device' | 'trunkUser' | 'trunkDevice' | 'trunkQueue' | string;
+  /** Pre-built TwiML redirect URL (the URL Twilio fetches to bridge into Spoke). */
+  twimlRedirectUrl?: string;
+  /** Whether the entry is hidden from the default directory view. */
+  isHidden?: boolean;
+  ivrKeyCode?: number;
+  phoneNumbers?: Array<{ phoneNumber: string }>;
+
+  // --- user-only fields ---
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  mobile?: string | null;
+  jobTitle?: string | null;
+  location?: string | null;
+  /** Employment status — "active", "invited", "suspended", etc. NOT presence. */
   status?: string;
-  hidden?: boolean;
-  available?: boolean;
-  devices?: Array<{ name?: string; status?: string; type?: string }>;
-  members?: Array<DirectoryEntry>;
-  twimlUrl?: string;
-  routing?: string;
-  voicemail?: boolean;
+  loginStatus?: 'loggedIn' | 'loggedOut';
+  teams?: string[];
+  /** Nested presence object. Present on user + team entries. */
+  availability?: Availability;
+
+  // --- team-only fields ---
+  teamMembers?: DirectoryEntry[];
 }
 
-export interface DirectoryListResponse {
-  entries?: DirectoryEntry[];
-  next?: string | null;
+export interface Availability {
+  status: 'available' | 'busy' | 'offline' | string;
+  statusAt?: string;
+  statusTimestamp?: number;
+  timezone?: string;
+  /** Display-only human summary, e.g. "Available", "0 people". */
+  availabilitySummary?: string;
+  /** Team-only: count of available members. */
+  totalAvailable?: number;
+  /** Team-only: count of all members. */
+  totalMembers?: number;
+  notAvailableRule?: string | null;
+  notAvailableReason?: string | null;
+  endAt?: string | null;
+  endTimestamp?: number | null;
+  callId?: string;
+  vendor?: string;
+  vendorCallId?: string;
 }
 
 export interface ListOpts {
-  type?: 'user' | 'group' | 'device';
+  type?: 'user' | 'group' | 'team' | 'device' | 'trunkDevice' | 'trunkUser' | 'trunkQueue';
   available?: boolean;
   hidden?: boolean;
-  page?: number;
-  limit?: number;
   next?: string;
+  limit?: number;
+  extension?: string;
+  phoneNumber?: string;
+  ivrKey?: string;
 }
 
-/**
- * Normalise the type filter to the OpenAPI vocabulary.
- *   - "group" → "callGroup"
- *   - "user", "device" pass through
- */
+/** Map user-facing type names ("group") to wire values ("team"). */
 export function normalizeType(t?: string): string | undefined {
   if (!t) return undefined;
-  if (t === 'group') return 'callGroup';
+  if (t === 'group' || t === 'callGroup') return 'team';
   return t;
 }
 
+interface ListResponse {
+  meta?: { next?: string | null };
+  entries?: DirectoryEntry[];
+}
+
 export async function list(client: SpokeApiClient, opts: ListOpts = {}): Promise<DirectoryEntry[]> {
-  const res = await client.get<DirectoryListResponse | DirectoryEntry[]>('/directory', {
+  const res = await client.get<ListResponse>('/directory', {
+    extension: opts.extension,
+    phoneNumber: opts.phoneNumber,
+    ivrKey: opts.ivrKey,
+    includeHiddenCallGroups: opts.hidden ? true : undefined,
     limit: opts.limit,
     next: opts.next,
-    includeHiddenCallGroups: opts.hidden ? true : undefined,
   });
-  const entries = Array.isArray(res.data) ? res.data : res.data.entries ?? [];
+  const entries = res.data.entries ?? [];
   const typeFilter = normalizeType(opts.type);
   return entries.filter((e) => {
     if (typeFilter && e.type !== typeFilter) return false;
-    if (opts.available && !(e.available || e.status === 'available')) return false;
-    if (!opts.hidden && e.hidden) return false;
+    if (opts.available && e.availability?.status !== 'available') return false;
+    if (!opts.hidden && e.isHidden) return false;
     return true;
   });
 }
 
-export async function get(client: SpokeApiClient, idOrName: string): Promise<DirectoryEntry> {
-  // Try direct lookup first.
-  if (/^\d+$/.test(idOrName)) {
-    const res = await client.get<DirectoryEntry>(`/directory/${encodeURIComponent(idOrName)}`);
+/**
+ * Look up a directory entry by id (UUID), extension (digits), or name (fuzzy).
+ *  - UUIDs hit /directory/{id} directly.
+ *  - All-digit input is treated as an extension and fetched via /directory?extension=N.
+ *  - Anything else lists the directory and fuzzy-matches displayName.
+ */
+export async function get(client: SpokeApiClient, idOrNameOrExt: string): Promise<DirectoryEntry> {
+  // UUID-shaped → direct lookup
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrNameOrExt)) {
+    const res = await client.get<DirectoryEntry>(`/directory/${idOrNameOrExt}`);
     return res.data;
   }
-  // Otherwise: list and fuzzy-match name.
-  const all = await list(client);
-  const lower = idOrName.toLowerCase();
+  // Numeric → treat as extension; the docs say the only path is the listing endpoint.
+  if (/^\d+$/.test(idOrNameOrExt)) {
+    const arr = await list(client, { extension: idOrNameOrExt });
+    if (arr.length === 0) {
+      const { NotFoundError } = await import('../errors');
+      throw new NotFoundError(`extension ${idOrNameOrExt} not found`);
+    }
+    return arr[0];
+  }
+  // Otherwise fuzzy-match against the directory listing.
+  const all = await list(client, { limit: 1000 });
+  const lower = idOrNameOrExt.toLowerCase();
   const match =
     all.find((e) => (e.displayName ?? '').toLowerCase() === lower) ??
     all.find((e) => (e.displayName ?? '').toLowerCase().includes(lower));
   if (!match) {
-    // Final fallback: ask API directly — the server may resolve symbolic IDs.
-    const res = await client.get<DirectoryEntry>(`/directory/${encodeURIComponent(idOrName)}`);
-    return res.data;
+    const { NotFoundError } = await import('../errors');
+    throw new NotFoundError(`no directory entry matching "${idOrNameOrExt}"`);
   }
   return match;
 }
@@ -82,13 +136,13 @@ export async function search(
   query: string,
   opts: ListOpts = {},
 ): Promise<DirectoryEntry[]> {
-  const all = await list(client, opts);
+  const all = await list(client, { ...opts, limit: opts.limit ?? 1000 });
   const lower = query.toLowerCase();
   return all.filter((e) => {
     return (
       (e.displayName ?? '').toLowerCase().includes(lower) ||
       (e.extension ?? '').includes(lower) ||
-      (e.id ?? '').toLowerCase().includes(lower)
+      (e.email ?? '').toLowerCase().includes(lower)
     );
   });
 }

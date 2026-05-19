@@ -1,14 +1,13 @@
 import { SpokeApiClient } from './client';
+import * as directory from './directory';
+import { DirectoryEntry, Availability } from './directory';
 
-export interface User {
-  id?: string;
-  extension?: string;
+/** A Spoke user. The `availability` nested object carries presence. */
+export interface User extends DirectoryEntry {
+  type: 'user';
   email?: string;
-  displayName?: string;
-  status?: string;
-  available?: boolean;
-  devices?: Array<{ id?: string; name?: string; type?: string; status?: string }>;
-  groups?: Array<{ id?: string; name?: string }>;
+  loginStatus?: 'loggedIn' | 'loggedOut';
+  availability?: Availability;
 }
 
 export interface ListOpts {
@@ -18,65 +17,69 @@ export interface ListOpts {
   limit?: number;
 }
 
+interface ListResponse {
+  meta?: { next?: string | null };
+  users?: User[];
+}
+
 export async function list(client: SpokeApiClient, opts: ListOpts = {}): Promise<User[]> {
-  const res = await client.get<{ entries?: User[]; users?: User[] } | User[]>('/users', {
+  const res = await client.get<ListResponse>('/users', {
     email: opts.email,
     limit: opts.limit,
     next: opts.next,
   });
-  const arr = Array.isArray(res.data)
-    ? res.data
-    : (res.data as any).entries ?? (res.data as any).users ?? [];
-  if (opts.available) return arr.filter((u: User) => u.available || u.status === 'available');
-  return arr;
+  const users = res.data.users ?? [];
+  if (opts.available) return users.filter((u) => u.availability?.status === 'available');
+  return users;
 }
 
-export async function get(client: SpokeApiClient, idOrEmail: string): Promise<User> {
-  if (idOrEmail.includes('@')) {
-    const users = await list(client, { email: idOrEmail });
-    if (users.length === 0) {
-      const res = await client.get<User>(`/users/${encodeURIComponent(idOrEmail)}`);
-      return res.data;
+/**
+ * Look up a single user. Routing:
+ *  - "@" in input → email filter on /users
+ *  - UUID → /users/{id}
+ *  - all digits → resolve via /directory?extension=N (since /users has no extension filter)
+ *  - other → fuzzy directory match, then return the matching user entry
+ */
+export async function get(client: SpokeApiClient, idOrEmailOrExt: string): Promise<User> {
+  if (idOrEmailOrExt.includes('@')) {
+    const arr = await list(client, { email: idOrEmailOrExt });
+    if (arr.length === 0) {
+      const { NotFoundError } = await import('../errors');
+      throw new NotFoundError(`no user with email ${idOrEmailOrExt}`);
     }
-    return users[0];
+    return arr[0];
   }
-  const res = await client.get<User>(`/users/${encodeURIComponent(idOrEmail)}`);
-  return res.data;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrEmailOrExt)) {
+    const res = await client.get<User>(`/users/${idOrEmailOrExt}`);
+    return res.data;
+  }
+  // Extension or name → directory lookup. Directory entries carry most user fields,
+  // so we can short-circuit without a second /users call.
+  const entry = await directory.get(client, idOrEmailOrExt);
+  if (entry.type !== 'user') {
+    const { NotFoundError } = await import('../errors');
+    throw new NotFoundError(`"${idOrEmailOrExt}" is a ${entry.type}, not a user`);
+  }
+  return entry as User;
 }
 
 export async function me(client: SpokeApiClient): Promise<User> {
-  // Spoke exposes the credential's own user via `/users/me` when available.
   const res = await client.get<User>('/users/me');
   return res.data;
 }
 
-export async function availability(client: SpokeApiClient, id: string): Promise<{
+export async function availability(client: SpokeApiClient, idOrExt: string): Promise<{
   user: User;
   available: boolean;
   status: string;
+  summary?: string;
 }> {
-  const u = await get(client, id);
+  const u = await get(client, idOrExt);
+  const a = u.availability;
   return {
     user: u,
-    available: Boolean(u.available || u.status === 'available'),
-    status: u.status ?? (u.available ? 'available' : 'unavailable'),
+    available: a?.status === 'available',
+    status: a?.status ?? 'unknown',
+    summary: a?.availabilitySummary,
   };
-}
-
-export async function setAvailability(
-  client: SpokeApiClient,
-  id: string,
-  status: 'available' | 'busy' | 'unavailable',
-): Promise<User> {
-  // NOTE: This endpoint is best-guess against the OpenAPI shape; verify against
-  // the production API when wiring live.
-  const res = await client.patch<User>(`/users/${encodeURIComponent(id)}`, { status });
-  return res.data;
-}
-
-export function redirectUrl(id: string, returnTo?: string): string {
-  const base = `https://spoke-api-service.twil.io/redirect`;
-  const qs = new URLSearchParams({ ext: id });
-  if (returnTo) qs.set('returnTo', returnTo);
-  return `${base}?${qs.toString()}`;
 }

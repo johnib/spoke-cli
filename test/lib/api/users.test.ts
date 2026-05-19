@@ -24,53 +24,86 @@ describe('api/users', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it('list returns users from .users / .entries / array', async () => {
-    mockTokenEndpoint({ persistent: true });
-    nock('https://integration.spokephone.com').get('/users').reply(200, [
-      { id: 'u1', displayName: 'Alice', available: true },
-      { id: 'u2', displayName: 'Bob', available: false },
-    ]);
+  it('list reads from { meta, users } envelope', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/users').reply(200, {
+      meta: {},
+      users: [
+        { id: 'u1', extension: '101', displayName: 'Alice', email: 'a@x', availability: { status: 'available' } },
+        { id: 'u2', extension: '102', displayName: 'Bob', availability: { status: 'busy' } },
+      ],
+    });
     const c = new SpokeApiClient({ active: profile });
     expect(await users.list(c)).toHaveLength(2);
   });
 
-  it('list filters available users', async () => {
+  it('list filters by availability', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com').get('/users').reply(200, {
+      meta: {},
       users: [
-        { id: 'u1', available: true },
-        { id: 'u2', available: false },
+        { id: 'u1', availability: { status: 'available' } },
+        { id: 'u2', availability: { status: 'busy' } },
       ],
     });
     const c = new SpokeApiClient({ active: profile });
     expect(await users.list(c, { available: true })).toHaveLength(1);
   });
 
-  it('list passes email filter through as query', async () => {
+  it('list passes ?email= filter through', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .get('/users')
-      .query({ email: 'a@b.com' })
-      .reply(200, [{ id: 'u1', email: 'a@b.com' }]);
+      .query({ email: 'a@x' })
+      .reply(200, { meta: {}, users: [{ id: 'u1', email: 'a@x' }] });
     const c = new SpokeApiClient({ active: profile });
-    expect(await users.list(c, { email: 'a@b.com' })).toHaveLength(1);
+    expect(await users.list(c, { email: 'a@x' })).toHaveLength(1);
   });
 
-  it('get by id', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/users/101').reply(200, { id: 'u1', extension: '101' });
-    const c = new SpokeApiClient({ active: profile });
-    expect((await users.get(c, '101')).extension).toBe('101');
-  });
-
-  it('get by email lists+filters', async () => {
+  it('get by email lists + takes first', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .get('/users')
-      .query({ email: 'a@b.com' })
-      .reply(200, [{ id: 'u1', email: 'a@b.com' }]);
+      .query({ email: 'a@x' })
+      .reply(200, { meta: {}, users: [{ id: 'u1', email: 'a@x' }] });
     const c = new SpokeApiClient({ active: profile });
-    expect((await users.get(c, 'a@b.com')).id).toBe('u1');
+    expect((await users.get(c, 'a@x')).id).toBe('u1');
+  });
+
+  it('get by email throws when none match', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/users').query({ email: 'nope@x' }).reply(200, { meta: {}, users: [] });
+    const c = new SpokeApiClient({ active: profile });
+    await expect(users.get(c, 'nope@x')).rejects.toThrow(/no user with email/);
+  });
+
+  it('get by UUID hits /users/{uuid}', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/users/8cbb9b90-3a86-11f1-9f00-5f8007bb0e93')
+      .reply(200, { id: '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93', displayName: 'Abby' });
+    const c = new SpokeApiClient({ active: profile });
+    expect((await users.get(c, '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93')).displayName).toBe('Abby');
+  });
+
+  it('get by extension resolves via /directory?extension=', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/directory')
+      .query({ extension: '1053' })
+      .reply(200, { meta: {}, entries: [{ id: 'u1', extension: '1053', displayName: 'Abby', type: 'user' }] });
+    const c = new SpokeApiClient({ active: profile });
+    expect((await users.get(c, '1053')).extension).toBe('1053');
+  });
+
+  it('get by extension throws when entry is not a user', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/directory')
+      .query({ extension: '200' })
+      .reply(200, { meta: {}, entries: [{ id: 't1', extension: '200', type: 'team', displayName: 'Sales' }] });
+    const c = new SpokeApiClient({ active: profile });
+    await expect(users.get(c, '200')).rejects.toThrow(/is a team, not a user/);
   });
 
   it('me hits /users/me', async () => {
@@ -80,29 +113,28 @@ describe('api/users', () => {
     expect((await users.me(c)).id).toBe('self');
   });
 
-  it('availability derives boolean from user status', async () => {
+  it('availability returns unknown when no availability field present', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/users/101').reply(200, {
-      id: 'u', extension: '101', status: 'available', available: true,
-    });
+    nock('https://integration.spokephone.com')
+      .get('/users/8cbb9b90-3a86-11f1-9f00-5f8007bb0e93')
+      .reply(200, { id: '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93' });
     const c = new SpokeApiClient({ active: profile });
-    const a = await users.availability(c, '101');
+    const a = await users.availability(c, '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93');
+    expect(a.available).toBe(false);
+    expect(a.status).toBe('unknown');
+  });
+
+  it('availability extracts status from .availability', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/users/8cbb9b90-3a86-11f1-9f00-5f8007bb0e93')
+      .reply(200, {
+        id: '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93',
+        availability: { status: 'available', availabilitySummary: 'Available' },
+      });
+    const c = new SpokeApiClient({ active: profile });
+    const a = await users.availability(c, '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93');
     expect(a.available).toBe(true);
-    expect(a.status).toBe('available');
-  });
-
-  it('setAvailability PATCHes /users/{id}', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').patch('/users/101', { status: 'busy' }).reply(200, {
-      id: 'u', status: 'busy',
-    });
-    const c = new SpokeApiClient({ active: profile });
-    const out = await users.setAvailability(c, '101', 'busy');
-    expect(out.status).toBe('busy');
-  });
-
-  it('redirectUrl includes ext + optional returnTo', () => {
-    expect(users.redirectUrl('101')).toContain('ext=101');
-    expect(users.redirectUrl('101', 'https://x')).toContain('returnTo=https');
+    expect(a.summary).toBe('Available');
   });
 });

@@ -9,12 +9,16 @@ export async function runGet(cmd: Command, idOrName: string): Promise<void> {
   await formatItem(entry, {
     ...globalOpts(cmd),
     fields: [
-      { label: 'Extension', get: (e) => e.extension ?? e.id ?? '' },
+      { label: 'ID', get: (e) => e.id ?? '' },
+      { label: 'Extension', get: (e) => e.extension ?? '' },
       { label: 'Name', get: (e) => e.displayName ?? '' },
-      { label: 'Type', get: (e) => (e.type === 'callGroup' ? 'group' : e.type ?? '') },
-      { label: 'Status', get: (e) => e.status ?? '' },
-      { label: 'Devices', get: (e) => (e.devices ?? []).map((d) => `${d.name} (${d.status ?? '-'})`) },
-      { label: 'TwiML URL', get: (e) => e.twimlUrl ?? '' },
+      { label: 'Type', get: (e) => (e.type === 'team' ? 'group' : e.type ?? '') },
+      { label: 'Email', get: (e) => e.email ?? '' },
+      { label: 'Availability', get: (e) => e.availability?.availabilitySummary ?? e.availability?.status ?? '' },
+      { label: 'Login Status', get: (e) => e.loginStatus ?? '' },
+      { label: 'Employment', get: (e) => e.status ?? '' },
+      { label: 'Teams', get: (e) => (e.teams ?? []).join(', ') },
+      { label: 'TwiML URL', get: (e) => e.twimlRedirectUrl ?? '' },
     ],
   });
 }
@@ -22,7 +26,7 @@ export async function runGet(cmd: Command, idOrName: string): Promise<void> {
 export function getCommand(parent: Command): void {
   parent
     .command('get <idOrName>')
-    .description('Get a single directory entry')
+    .description('Get a single directory entry by UUID, extension, or name')
     .action(async function (this: Command, idOrName: string) {
       await runGet(this, idOrName);
     });

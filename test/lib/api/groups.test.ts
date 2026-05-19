@@ -24,59 +24,91 @@ describe('api/groups', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it('list filters directory to callGroup type', async () => {
+  it('list filters directory to type=team', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory').reply(200, [
-      { extension: '101', type: 'user' },
-      { extension: '200', displayName: 'Sales', type: 'callGroup' },
-    ]);
+    nock('https://integration.spokephone.com')
+      .get('/directory')
+      .query({ limit: '1000' })
+      .reply(200, {
+        meta: {},
+        entries: [
+          { id: 'u1', extension: '101', type: 'user' },
+          { id: 't1', extension: '200', displayName: 'Sales', type: 'team', availability: { totalMembers: 3, totalAvailable: 2 } },
+        ],
+      });
     const c = new SpokeApiClient({ active: profile });
     const out = await groups.list(c);
     expect(out).toHaveLength(1);
     expect(out[0].displayName).toBe('Sales');
   });
 
-  it('get fetches a group by id', async () => {
+  it('get fetches a team by UUID', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory/200').reply(200, {
-      extension: '200', displayName: 'Sales', type: 'callGroup',
-      members: [{ extension: '101', available: true }, { extension: '102', available: false }],
+    nock('https://integration.spokephone.com').get('/directory/8cbb9b90-3a86-11f1-9f00-5f8007bb0e93').reply(200, {
+      id: '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93', extension: '200', displayName: 'Sales', type: 'team',
+      teamMembers: [{ id: 'm1', availability: { status: 'available' } }],
     });
     const c = new SpokeApiClient({ active: profile });
-    const g = await groups.get(c, '200');
+    const g = await groups.get(c, '8cbb9b90-3a86-11f1-9f00-5f8007bb0e93');
     expect(g.displayName).toBe('Sales');
   });
 
-  it('members applies available filter', async () => {
+  it('members reads teamMembers field', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory/200').reply(200, {
-      extension: '200', type: 'callGroup',
-      members: [{ extension: '101', available: true }, { extension: '102', available: false }],
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [
+        {
+          id: 't1', extension: '200', type: 'team',
+          teamMembers: [
+            { id: 'm1', availability: { status: 'available' } },
+            { id: 'm2', availability: { status: 'busy' } },
+          ],
+        },
+      ],
     });
     const c = new SpokeApiClient({ active: profile });
     const m = await groups.members(c, '200', { available: true });
     expect(m).toHaveLength(1);
   });
 
-  it('availability returns total + available count', async () => {
+  it('availability prefers server-computed totalAvailable/totalMembers', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory/200').reply(200, {
-      extension: '200', type: 'callGroup',
-      members: [
-        { extension: '101', available: true },
-        { extension: '102', available: true },
-        { extension: '103', available: false },
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [
+        {
+          id: 't1', extension: '200', type: 'team',
+          availability: { status: 'available', totalMembers: 6, totalAvailable: 4, availabilitySummary: '4 of 6 people available' },
+          teamMembers: [],
+        },
+      ],
+    });
+    const c = new SpokeApiClient({ active: profile });
+    const a = await groups.availability(c, '200');
+    expect(a.total).toBe(6);
+    expect(a.available).toBe(4);
+    expect(a.summary).toContain('4 of 6');
+  });
+
+  it('availability falls back to teamMembers count when server count missing', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [
+        {
+          id: 't1', extension: '200', type: 'team',
+          teamMembers: [
+            { id: 'm1', availability: { status: 'available' } },
+            { id: 'm2', availability: { status: 'available' } },
+            { id: 'm3', availability: { status: 'busy' } },
+          ],
+        },
       ],
     });
     const c = new SpokeApiClient({ active: profile });
     const a = await groups.availability(c, '200');
     expect(a.total).toBe(3);
     expect(a.available).toBe(2);
-  });
-
-  it('redirectUrl includes ext + group=1', () => {
-    const url = groups.redirectUrl('200');
-    expect(url).toContain('ext=200');
-    expect(url).toContain('group=1');
   });
 });

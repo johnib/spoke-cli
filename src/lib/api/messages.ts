@@ -1,43 +1,18 @@
 import { SpokeApiClient } from './client';
 
+/**
+ * Outbound messages are the only message operation on the public API.
+ * The list/get endpoints from earlier drafts of this CLI do not exist —
+ * to consume messages, subscribe to the `conversation.message.created`
+ * webhook event.
+ */
 export interface Message {
   id?: string;
-  direction?: 'inbound' | 'outbound' | string;
-  channel?: 'sms' | 'whatsapp' | string;
-  from?: string;
-  to?: string;
-  body?: string;
   status?: string;
-  createdAt?: string | number;
-  user?: { id?: string; extension?: string };
-}
-
-export interface ListOpts {
-  direction?: 'inbound' | 'outbound';
-  user?: string;
-  channel?: 'sms' | 'whatsapp';
-  since?: string | number;
-  before?: string | number;
-  next?: string;
-  limit?: number;
-}
-
-export async function list(client: SpokeApiClient, opts: ListOpts = {}): Promise<Message[]> {
-  const res = await client.get<{ entries?: Message[] } | Message[]>('/conversationMessages', {
-    direction: opts.direction,
-    user: opts.user,
-    channel: opts.channel,
-    since: opts.since,
-    before: opts.before,
-    next: opts.next,
-    limit: opts.limit,
-  });
-  return Array.isArray(res.data) ? res.data : res.data.entries ?? [];
-}
-
-export async function get(client: SpokeApiClient, id: string): Promise<Message> {
-  const res = await client.get<Message>(`/conversationMessages/${encodeURIComponent(id)}`);
-  return res.data;
+  to?: string;
+  from?: string;
+  body?: string;
+  channel?: 'sms' | 'whatsapp' | string;
 }
 
 export interface SendOpts {

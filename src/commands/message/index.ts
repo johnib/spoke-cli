@@ -1,11 +1,7 @@
 import { Command } from 'commander';
-import { listCommand } from './list';
-import { getCommand } from './get';
 import { sendCommand } from './send';
 
 export function registerMessageCommands(program: Command): void {
-  const m = program.command('message').description('Send and inspect messages');
-  listCommand(m);
-  getCommand(m);
+  const m = program.command('message').description('Send messages (the API exposes no list/read; subscribe to webhook events to receive)');
   sendCommand(m);
 }

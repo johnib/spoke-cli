@@ -24,9 +24,20 @@ describe('api/webhooks', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it('list returns webhooks', async () => {
+  it('list reads from envelope or array', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/webhooks').reply(200, [{ id: 'wh1', url: 'https://x', events: ['call.started'] }]);
+    nock('https://integration.spokephone.com')
+      .get('/webhooks')
+      .reply(200, { meta: {}, webhooks: [{ id: 'wh1', url: 'https://x', events: [] }] });
+    const c = new SpokeApiClient({ active: profile });
+    expect((await webhooks.list(c))[0].id).toBe('wh1');
+  });
+
+  it('list handles bare array response', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com')
+      .get('/webhooks')
+      .reply(200, [{ id: 'wh1', url: 'https://x', events: [] }]);
     const c = new SpokeApiClient({ active: profile });
     expect((await webhooks.list(c))[0].id).toBe('wh1');
   });
@@ -38,14 +49,14 @@ describe('api/webhooks', () => {
     expect((await webhooks.get(c, 'wh1')).id).toBe('wh1');
   });
 
-  it('create POSTs', async () => {
+  it('create POSTs and returns the new webhook with signing secret', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
-      .post('/webhooks', { url: 'https://x', events: ['call.started'], secret: 's' })
-      .reply(201, { id: 'wh1', url: 'https://x', events: ['call.started'] });
+      .post('/webhooks', { url: 'https://x', events: ['call.started'], description: 'd' })
+      .reply(201, { id: 'wh1', url: 'https://x', events: ['call.started'], signingSecret: 'sk_xxx' });
     const c = new SpokeApiClient({ active: profile });
-    const out = await webhooks.create(c, { url: 'https://x', events: ['call.started'], secret: 's' });
-    expect(out.id).toBe('wh1');
+    const out = await webhooks.create(c, { url: 'https://x', events: ['call.started'], description: 'd' });
+    expect(out.signingSecret).toBe('sk_xxx');
   });
 
   it('update PUTs', async () => {
@@ -54,8 +65,7 @@ describe('api/webhooks', () => {
       .put('/webhooks/wh1', { events: ['call.ended'] })
       .reply(200, { id: 'wh1', url: 'https://x', events: ['call.ended'] });
     const c = new SpokeApiClient({ active: profile });
-    const out = await webhooks.update(c, 'wh1', { events: ['call.ended'] });
-    expect(out.events).toEqual(['call.ended']);
+    expect((await webhooks.update(c, 'wh1', { events: ['call.ended'] })).events).toEqual(['call.ended']);
   });
 
   it('remove DELETEs', async () => {
@@ -65,15 +75,10 @@ describe('api/webhooks', () => {
     await webhooks.remove(c, 'wh1');
   });
 
-  it('replay POSTs eventId', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').post('/webhooks/wh1/replay', { eventId: 'e1' }).reply(202, {});
-    const c = new SpokeApiClient({ active: profile });
-    await webhooks.replay(c, 'wh1', 'e1');
-  });
-
-  it('exports KNOWN_EVENTS', () => {
+  it('KNOWN_EVENTS includes the full real catalog', () => {
     expect(webhooks.KNOWN_EVENTS).toContain('call.started');
-    expect(webhooks.KNOWN_EVENTS).toContain('message.received');
+    expect(webhooks.KNOWN_EVENTS).toContain('conversation.message.created');
+    expect(webhooks.KNOWN_EVENTS).toContain('user.availability.updated');
+    expect(webhooks.KNOWN_EVENTS).toContain('content_analysis.completed');
   });
 });

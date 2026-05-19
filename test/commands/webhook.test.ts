@@ -21,47 +21,45 @@ describe('spoke webhook commands', () => {
 
   it('list prints webhooks', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/webhooks').reply(200, [
-      { id: 'wh1', url: 'https://x', events: ['call.started'], status: 'active' },
-    ]);
-    const result = await runCli(['webhook', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('wh1');
+    nock('https://integration.spokephone.com').get('/webhooks').reply(200, {
+      meta: {},
+      webhooks: [{ id: 'wh1', url: 'https://x', events: ['call.started'], mode: 'production', enabled: true }],
+    });
+    const r = await runCli(['webhook', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('wh1');
   });
 
-  it('create POSTs and prints the result', async () => {
+  it('create POSTs and prints the new webhook', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
-      .post('/webhooks', (body: any) => body.url === 'https://x' && Array.isArray(body.events))
-      .reply(201, { id: 'wh1', url: 'https://x', events: ['call.started'], status: 'active' });
-    const result = await runCli([
+      .post('/webhooks', (body: any) => body.url === 'https://x' && body.events.length > 0)
+      .reply(201, { id: 'wh1', url: 'https://x', events: ['call.started'], mode: 'production', enabled: true, signingSecret: 'sk_xxx' });
+    const r = await runCli([
       'webhook', 'create',
       '--url', 'https://x',
       '--events', 'call.started',
     ]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('wh1');
-  });
-
-  it('delete refuses without --confirm', async () => {
-    const result = await runCli(['webhook', 'delete', 'wh1']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Refusing to delete');
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('wh1');
+    expect(r.stdout).toContain('sk_xxx');
   });
 
   it('delete --confirm DELETEs', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com').delete('/webhooks/wh1').reply(204, '');
-    const result = await runCli(['webhook', 'delete', 'wh1', '--confirm']);
-    expect(result.exitCode).toBe(0);
+    const r = await runCli(['webhook', 'delete', 'wh1', '--confirm']);
+    expect(r.exitCode).toBe(0);
   });
 
-  it('replay POSTs eventId', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com')
-      .post('/webhooks/wh1/replay', { eventId: 'e1' })
-      .reply(202, {});
-    const result = await runCli(['webhook', 'replay', 'wh1', '--event-id', 'e1']);
-    expect(result.exitCode).toBe(0);
+  it('delete refuses without --confirm', async () => {
+    const r = await runCli(['webhook', 'delete', 'wh1']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Refusing to delete');
+  });
+
+  it('replay subcommand has been removed (no such API endpoint)', async () => {
+    const r = await runCli(['webhook', '--help']);
+    expect(r.stdout).not.toContain('replay');
   });
 });

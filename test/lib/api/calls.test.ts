@@ -24,54 +24,83 @@ describe('api/calls', () => {
   });
   afterEach(() => tmp.cleanup());
 
-  it('list returns entries with active included by default', async () => {
+  it('list reads from { meta, calls } envelope', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/calls').reply(200, {
+      meta: { next: 'cursor1' },
+      calls: [{ id: 'c1', direction: 'inbound', status: 'accepted', duration: 16976 }],
+    });
+    const c = new SpokeApiClient({ active: profile });
+    expect(await calls.list(c)).toHaveLength(1);
+  });
+
+  it('list passes filters as query', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .get('/calls')
-      .query({ includeActive: 'true' })
-      .reply(200, [{ sid: 'CA1', status: 'in-call' }]);
+      .query({ includeActive: 'true', limit: '5' })
+      .reply(200, { meta: {}, calls: [] });
     const c = new SpokeApiClient({ active: profile });
-    expect(await calls.list(c, { includeActive: true })).toHaveLength(1);
+    await calls.list(c, { includeActive: true, limit: 5 });
   });
 
   it('get fetches by id', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/calls/CA1').reply(200, { sid: 'CA1' });
+    nock('https://integration.spokephone.com').get('/calls/c1').reply(200, { id: 'c1', direction: 'inbound' });
     const c = new SpokeApiClient({ active: profile });
-    expect((await calls.get(c, 'CA1')).sid).toBe('CA1');
+    expect((await calls.get(c, 'c1')).id).toBe('c1');
   });
 
-  it('redirect POSTs to api.spokephone.com', async () => {
+  it('get passes includeRecordingUrl only when requested', async () => {
     mockTokenEndpoint();
-    nock('https://api.spokephone.com')
-      .post('/telephony/redirect', (body: any) => body.callId === 'CA1' && body.extension === '101')
-      .reply(200, { ok: true });
+    nock('https://integration.spokephone.com').get('/calls/c1').query({ includeRecordingUrl: 'true' }).reply(200, { id: 'c1' });
     const c = new SpokeApiClient({ active: profile });
-    const out = await calls.redirect(c, 'CA1', { extension: '101' });
-    expect((out as any).ok).toBe(true);
+    await calls.get(c, 'c1', { includeRecordingUrl: true });
   });
 
-  it('redirect supports +E164 numbers and passthrough fields', async () => {
-    mockTokenEndpoint();
-    nock('https://api.spokephone.com')
-      .post('/telephony/redirect', (body: any) => body.number === '+12345' && body['x-foo'] === 'bar')
-      .reply(200, {});
-    const c = new SpokeApiClient({ active: profile });
-    await calls.redirect(c, 'CA1', { number: '+12345', passthrough: { foo: 'bar' } });
+  describe('twimlRedirectUrl', () => {
+    it('emits parameters in the canonical signature order', () => {
+      const url = calls.twimlRedirectUrl({
+        extension: '101',
+        organisationId: 'org-1',
+        priority: 7,
+        returnTo: 'flow',
+        returnToId: 'FW-1',
+      });
+      // extension first, nextOfferTimeout (absent), organisationId, priority, returnTo, returnToId
+      expect(url.indexOf('extension=101')).toBeLessThan(url.indexOf('organisationId=org-1'));
+      expect(url.indexOf('organisationId=org-1')).toBeLessThan(url.indexOf('priority=7'));
+      expect(url.indexOf('priority=7')).toBeLessThan(url.indexOf('returnTo=flow'));
+      expect(url.indexOf('returnTo=flow')).toBeLessThan(url.indexOf('returnToId=FW-1'));
+    });
+
+    it('omits optional params when not provided', () => {
+      const url = calls.twimlRedirectUrl({ extension: '101' });
+      expect(url).toContain('extension=101');
+      expect(url).not.toContain('organisationId');
+      expect(url).not.toContain('priority');
+    });
+
+    it('URL-encodes the returnToId for postEndpoint mode', () => {
+      const url = calls.twimlRedirectUrl({
+        extension: '101',
+        returnTo: 'postEndpoint',
+        returnToId: 'https://example.com/cb',
+      });
+      expect(url).toContain('returnToId=https%3A%2F%2Fexample.com%2Fcb');
+    });
   });
 
-  it('hangup sends endCall=true', async () => {
-    mockTokenEndpoint();
-    nock('https://api.spokephone.com')
-      .post('/telephony/redirect', (body: any) => body.endCall === true && body.callId === 'CA1')
-      .reply(200, {});
-    const c = new SpokeApiClient({ active: profile });
-    await calls.hangup(c, 'CA1');
-  });
+  describe('formatDurationMs', () => {
+    it('renders milliseconds as HH:MM:SS', () => {
+      expect(calls.formatDurationMs(16976)).toBe('00:00:16');
+      expect(calls.formatDurationMs(125_000)).toBe('00:02:05');
+      expect(calls.formatDurationMs(3_661_000)).toBe('01:01:01');
+    });
 
-  it('twimlRedirectUrl returns URL with ext + returnTo', () => {
-    const u = calls.twimlRedirectUrl({ extension: '101', returnTo: 'https://x' });
-    expect(u).toContain('ext=101');
-    expect(u).toContain('returnTo=https');
+    it('returns 00:00:00 for undefined/zero', () => {
+      expect(calls.formatDurationMs(undefined)).toBe('00:00:00');
+      expect(calls.formatDurationMs(0)).toBe('00:00:00');
+    });
   });
 });

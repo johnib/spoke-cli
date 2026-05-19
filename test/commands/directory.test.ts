@@ -19,80 +19,63 @@ describe('spoke directory commands', () => {
     delete process.env.SPOKE_CLIENT_SECRET;
   });
 
-  it('list prints a table', async () => {
+  it('list prints a table with availability summary', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory').reply(200, [
-      { extension: '101', displayName: 'Alice', type: 'user', available: true },
-      { extension: '200', displayName: 'Sales', type: 'callGroup' },
-    ]);
-    const result = await runCli(['directory', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('EXTENSION');
-    expect(result.stdout).toContain('Alice');
-    expect(result.stdout).toContain('Sales');
-  });
-
-  it('list --json emits JSON', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory').reply(200, [
-      { extension: '101', displayName: 'Alice', type: 'user' },
-    ]);
-    const result = await runCli(['--json', 'directory', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('"displayName": "Alice"');
-  });
-
-  it('list --jq filters', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory').reply(200, [
-      { extension: '101', displayName: 'Alice', type: 'user' },
-      { extension: '102', displayName: 'Bob', type: 'user' },
-    ]);
-    const result = await runCli(['--jq', '$.displayName', 'directory', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('Alice\nBob');
-  });
-
-  it('list --silent emits nothing', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory').reply(200, []);
-    const result = await runCli(['--silent', 'directory', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe('');
-  });
-
-  it('get prints a human key:value view', async () => {
-    mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory/101').reply(200, {
-      extension: '101', displayName: 'Alice', type: 'user', status: 'available',
+    nock('https://integration.spokephone.com').get('/directory').reply(200, {
+      meta: {},
+      entries: [
+        { id: 'u1', extension: '101', displayName: 'Alice', type: 'user', availability: { availabilitySummary: 'Available', status: 'available' } },
+      ],
     });
-    const result = await runCli(['directory', 'get', '101']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Extension:');
-    expect(result.stdout).toContain('Alice');
+    const r = await runCli(['directory', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Alice');
+    expect(r.stdout).toContain('Available');
   });
 
-  it('get exits 3 on not found', async () => {
+  it('list --json emits raw entries', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory/999').reply(404, { message: 'no' });
-    const result = await runCli(['directory', 'get', '999']);
-    expect(result.exitCode).toBe(3);
+    nock('https://integration.spokephone.com').get('/directory').reply(200, {
+      meta: {},
+      entries: [{ id: 'u1', extension: '101', displayName: 'Alice', type: 'user' }],
+    });
+    const r = await runCli(['--json', 'directory', 'list']);
+    expect(r.stdout).toContain('"displayName": "Alice"');
   });
 
-  it('search matches by name', async () => {
+  it('get by extension uses ?extension= query', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/directory').reply(200, [
-      { extension: '200', displayName: 'Sales Team', type: 'callGroup' },
-    ]);
-    const result = await runCli(['directory', 'search', 'sales']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Sales Team');
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '101' }).reply(200, {
+      meta: {},
+      entries: [{ id: 'u1', extension: '101', displayName: 'Alice', type: 'user', email: 'a@x' }],
+    });
+    const r = await runCli(['directory', 'get', '101']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Alice');
+    expect(r.stdout).toContain('a@x');
   });
 
-  it('dry-run does not hit the API', async () => {
-    // No nock interceptor — would fail if a request were made (net disabled).
-    const result = await runCli(['--dry-run', 'directory', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('[dry-run]');
+  it('get exits 3 on extension not found', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '999' }).reply(200, { meta: {}, entries: [] });
+    const r = await runCli(['directory', 'get', '999']);
+    expect(r.exitCode).toBe(3);
+  });
+
+  it('search matches by name substring', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ limit: '1000' }).reply(200, {
+      meta: {},
+      entries: [{ id: 't1', extension: '200', displayName: 'Sales Team', type: 'team' }],
+    });
+    const r = await runCli(['directory', 'search', 'sales']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Sales Team');
+  });
+
+  it('dry-run skips network', async () => {
+    const r = await runCli(['--dry-run', 'directory', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('[dry-run]');
   });
 });

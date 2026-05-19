@@ -9,11 +9,16 @@ export async function runList(cmd: Command, opts: { available?: boolean; hidden?
   await formatList(arr, {
     ...globalOpts(cmd),
     columns: [
-      { header: 'EXTENSION', get: (g) => g.extension ?? g.id ?? '' },
+      { header: 'EXTENSION', get: (g) => g.extension ?? '' },
       { header: 'NAME', get: (g) => g.displayName ?? '' },
-      { header: 'MEMBERS', get: (g) => (g.members ?? []).length },
-      { header: 'AVAILABLE', get: (g) => (g.members ?? []).filter((m) => m.available || m.status === 'available').length },
-      { header: 'ROUTING', get: (g) => g.routing ?? '' },
+      { header: 'MEMBERS', get: (g) => g.availability?.totalMembers ?? (g.teamMembers ?? []).length },
+      {
+        header: 'AVAILABLE',
+        get: (g) =>
+          g.availability?.totalAvailable ??
+          (g.teamMembers ?? []).filter((m) => m.availability?.status === 'available').length,
+      },
+      { header: 'STATUS', get: (g) => g.availability?.status ?? '' },
     ],
   });
 }
@@ -21,8 +26,8 @@ export async function runList(cmd: Command, opts: { available?: boolean; hidden?
 export function listCommand(parent: Command): void {
   parent
     .command('list')
-    .description('List call groups')
-    .option('--available', 'Groups with at least 1 available member', false)
+    .description('List call groups (teams)')
+    .option('--available', 'Groups with at least one available member', false)
     .option('--hidden', 'Include hidden groups', false)
     .option('--limit <n>', 'Items per page', (v) => parseInt(v, 10))
     .action(async function (this: Command, opts) {

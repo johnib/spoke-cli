@@ -19,68 +19,64 @@ describe('spoke call commands', () => {
     delete process.env.SPOKE_CLIENT_SECRET;
   });
 
-  it('list prints active calls', async () => {
+  it('list prints calls with ms→HH:MM:SS duration', async () => {
     mockTokenEndpoint();
     nock('https://integration.spokephone.com')
       .get('/calls')
       .query({ includeActive: 'true' })
-      .reply(200, [{ sid: 'CA1', from: '+1', to: 'ext 101', status: 'in-call', duration: 134 }]);
-    const result = await runCli(['call', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('CA1');
-    expect(result.stdout).toContain('00:02:14');
+      .reply(200, {
+        meta: {},
+        calls: [{
+          id: 'c1', direction: 'inbound',
+          contactNumber: '+447723497939', companyNumber: '+13186598411',
+          directoryTarget: { displayName: 'UK Finance Co-Ordinators' },
+          outcome: { status: 'answered' }, duration: 16976,
+          startedAt: '2026-04-16T10:04:13.311Z',
+        }],
+      });
+    const r = await runCli(['call', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('inbound');
+    expect(r.stdout).toContain('+447723497939');
+    expect(r.stdout).toContain('UK Finance Co-Ordinators');
+    expect(r.stdout).toContain('00:00:16');
+    expect(r.stdout).toContain('2026-04-16 10:04:13');
   });
 
-  it('get prints details', async () => {
+  it('get prints call details', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/calls/CA1').reply(200, { sid: 'CA1', status: 'completed' });
-    const result = await runCli(['call', 'get', 'CA1']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('completed');
+    nock('https://integration.spokephone.com').get('/calls/c1').reply(200, {
+      id: 'c1', direction: 'inbound', status: 'accepted', outcome: { status: 'answered' },
+      duration: 16976, waitTime: 12689,
+      assignedUser: { firstName: 'Konstantin', lastName: 'Stepanov' },
+    });
+    const r = await runCli(['call', 'get', 'c1']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('answered');
+    expect(r.stdout).toContain('Konstantin Stepanov');
   });
 
-  it('transfer requires --to', async () => {
-    const result = await runCli(['call', 'transfer', 'CA1']);
-    expect(result.exitCode).not.toBe(0);
+  it('twiml-url builds the canonical URL', async () => {
+    const r = await runCli(['call', 'twiml-url', '--extension', '101', '--organisation-id', 'org-1']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('api.spokephone.com/telephony/redirect');
+    expect(r.stdout).toContain('extension=101');
+    expect(r.stdout).toContain('organisationId=org-1');
   });
 
-  it('transfer redirects to extension', async () => {
-    mockTokenEndpoint();
-    nock('https://api.spokephone.com')
-      .post('/telephony/redirect', (body: any) => body.extension === '101')
-      .reply(200, { ok: true });
-    const result = await runCli(['call', 'transfer', 'CA1', '--to', '101']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('blind transfer');
+  it('twiml-url omits --send-to-voicemail when not passed', async () => {
+    const r = await runCli(['call', 'twiml-url', '--extension', '101']);
+    expect(r.stdout).not.toContain('sendToVoicemail');
   });
 
-  it('transfer --warm', async () => {
-    mockTokenEndpoint();
-    nock('https://api.spokephone.com').post('/telephony/redirect').reply(200, {});
-    const result = await runCli(['call', 'transfer', 'CA1', '--to', '101', '--warm']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('warm');
-  });
-
-  it('redirect calls the endpoint', async () => {
-    mockTokenEndpoint();
-    nock('https://api.spokephone.com').post('/telephony/redirect').reply(200, {});
-    const result = await runCli(['call', 'redirect', 'CA1', '--to', '101']);
-    expect(result.exitCode).toBe(0);
-  });
-
-  it('hangup sends endCall', async () => {
-    mockTokenEndpoint();
-    nock('https://api.spokephone.com')
-      .post('/telephony/redirect', (body: any) => body.endCall === true)
-      .reply(200, {});
-    const result = await runCli(['call', 'hangup', 'CA1']);
-    expect(result.exitCode).toBe(0);
-  });
-
-  it('twiml-url prints URL', async () => {
-    const result = await runCli(['call', 'twiml-url', '--extension', '101']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('ext=101');
+  it('twiml-url includes returnTo + returnToId', async () => {
+    const r = await runCli([
+      'call', 'twiml-url',
+      '--extension', '101',
+      '--return-to', 'flow',
+      '--return-to-id', 'FW-1',
+    ]);
+    expect(r.stdout).toContain('returnTo=flow');
+    expect(r.stdout).toContain('returnToId=FW-1');
   });
 });

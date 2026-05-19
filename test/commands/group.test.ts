@@ -19,64 +19,75 @@ describe('spoke group commands', () => {
     delete process.env.SPOKE_CLIENT_SECRET;
   });
 
-  function dirWith(entries: any[]) {
-    nock('https://integration.spokephone.com').get('/directory').reply(200, entries);
-  }
-  function entry(id: string, opts: any = {}) {
-    nock('https://integration.spokephone.com').get(`/directory/${id}`).reply(200, opts);
-  }
-
-  it('list filters to groups', async () => {
+  it('list shows teams with member counts', async () => {
     mockTokenEndpoint();
-    dirWith([
-      { extension: '200', displayName: 'Sales', type: 'callGroup', members: [{ available: true }] },
-    ]);
-    const result = await runCli(['group', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Sales');
-  });
-
-  it('get prints details', async () => {
-    mockTokenEndpoint();
-    entry('200', {
-      extension: '200', displayName: 'Sales', type: 'callGroup',
-      members: [{ available: true }, { available: false }],
-      routing: 'round-robin',
+    nock('https://integration.spokephone.com').get('/directory').query({ limit: '1000' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 't1', extension: '200', displayName: 'Sales', type: 'team',
+        availability: { status: 'available', totalMembers: 3, totalAvailable: 2 },
+      }],
     });
-    const result = await runCli(['group', 'get', '200']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Members:');
+    const r = await runCli(['group', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Sales');
   });
 
-  it('members lists members', async () => {
+  it('get shows the count summary', async () => {
     mockTokenEndpoint();
-    entry('200', {
-      extension: '200', type: 'callGroup',
-      members: [
-        { extension: '101', displayName: 'Alice', available: true },
-        { extension: '102', displayName: 'Bob', available: false },
-      ],
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 't1', extension: '200', displayName: 'Sales', type: 'team',
+        availability: { status: 'available', totalMembers: 3, totalAvailable: 2, availabilitySummary: '2 of 3 people available' },
+      }],
     });
-    const result = await runCli(['group', 'members', '200']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Alice');
-    expect(result.stdout).toContain('Bob');
+    const r = await runCli(['group', 'get', '200']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('3 (2 available)');
   });
 
-  it('availability prints counts', async () => {
+  it('members lists teamMembers', async () => {
     mockTokenEndpoint();
-    entry('200', {
-      extension: '200', displayName: 'Sales', type: 'callGroup',
-      members: [{ available: true }, { available: false }],
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 't1', extension: '200', type: 'team',
+        teamMembers: [
+          { id: 'u1', extension: '101', displayName: 'Alice', availability: { status: 'available' } },
+        ],
+      }],
     });
-    const result = await runCli(['group', 'availability', '200']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('1/2');
+    const r = await runCli(['group', 'members', '200']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Alice');
   });
 
-  it('redirect-url prints a URL', async () => {
-    const result = await runCli(['group', 'redirect-url', '200']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('ext=200');
+  it('availability shows X/Y format', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 't1', extension: '200', displayName: 'Sales', type: 'team',
+        availability: { status: 'available', totalMembers: 3, totalAvailable: 2 },
+      }],
+    });
+    const r = await runCli(['group', 'availability', '200']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('2/3');
+  });
+
+  it('redirect-url prints entry.twimlRedirectUrl', async () => {
+    mockTokenEndpoint();
+    nock('https://integration.spokephone.com').get('/directory').query({ extension: '200' }).reply(200, {
+      meta: {},
+      entries: [{
+        id: 't1', extension: '200', type: 'team',
+        twimlRedirectUrl: 'https://api.spokephone.com/telephony/redirect?extension=200&organisationId=org-1',
+      }],
+    });
+    const r = await runCli(['group', 'redirect-url', '200']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('extension=200');
   });
 });

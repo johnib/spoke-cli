@@ -6,7 +6,7 @@ import { runCli } from '../helpers/run-cli';
 import { setupTmpHome, TmpHome } from '../helpers/tmp-home';
 import { disableRealNetwork, restoreNetwork, mockTokenEndpoint } from '../helpers/nock-setup';
 
-describe('spoke voicemail commands', () => {
+describe('spoke voicemail commands (derived from /calls)', () => {
   let tmp: TmpHome;
   beforeAll(() => disableRealNetwork());
   afterAll(() => restoreNetwork());
@@ -22,46 +22,64 @@ describe('spoke voicemail commands', () => {
     delete process.env.SPOKE_CLIENT_SECRET;
   });
 
-  it('list prints voicemails', async () => {
+  it('list filters /calls to voicemail-bearing entries', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/voicemails').reply(200, [
-      { id: 'vm1', from: '+1', duration: 43, read: false, recipientName: 'Alice' },
-    ]);
-    const result = await runCli(['voicemail', 'list']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('vm1');
+    nock('https://integration.spokephone.com')
+      .get('/calls')
+      .query({ limit: '200', includeRecordingUrl: 'true' })
+      .reply(200, {
+        meta: {},
+        calls: [
+          {
+            id: 'c1', contactNumber: '+1', startedAt: '2026-04-20T08:41:32.751Z',
+            directoryTarget: { displayName: 'Sales' },
+            voicemail: { id: 'vm1', duration: 15, transcription: 'hello' },
+          },
+        ],
+      });
+    const r = await runCli(['voicemail', 'list']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('vm1');
+    expect(r.stdout).toContain('Sales');
   });
 
-  it('get prints details', async () => {
+  it('get by call id', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/voicemails/vm1').reply(200, {
-      id: 'vm1', from: '+1', duration: 30,
-    });
-    const result = await runCli(['voicemail', 'get', 'vm1']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('vm1');
+    nock('https://integration.spokephone.com')
+      .get('/calls/c1')
+      .query({ includeRecordingUrl: 'true' })
+      .reply(200, {
+        id: 'c1', contactNumber: '+1',
+        voicemail: { id: 'vm1', duration: 15, transcription: 'hello' },
+      });
+    const r = await runCli(['voicemail', 'get', 'c1']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('vm1');
+    expect(r.stdout).toContain('hello');
   });
 
   it('transcript prints the transcription', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/voicemails/vm1').reply(200, {
-      id: 'vm1', transcript: 'Hi Alice, this is John.',
-    });
-    const result = await runCli(['voicemail', 'transcript', 'vm1']);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Hi Alice');
+    nock('https://integration.spokephone.com')
+      .get('/calls/c1')
+      .query({ includeRecordingUrl: 'true' })
+      .reply(200, { id: 'c1', voicemail: { id: 'vm1', transcription: 'Hi Alice...' } });
+    const r = await runCli(['voicemail', 'transcript', 'c1']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Hi Alice');
   });
 
-  it('download writes file', async () => {
+  it('download writes the recording', async () => {
     mockTokenEndpoint();
-    nock('https://integration.spokephone.com').get('/voicemails/vm1').reply(200, {
-      id: 'vm1', recordingUrl: 'https://recordings.example/vm1.mp3',
-    });
-    nock('https://recordings.example').get('/vm1.mp3').reply(200, Buffer.from('mp3data'));
-    const out = path.join(os.tmpdir(), `spoke-cli-vm-${Date.now()}.mp3`);
-    const result = await runCli(['voicemail', 'download', 'vm1', '--output', out]);
-    expect(result.exitCode).toBe(0);
-    expect(fs.readFileSync(out, 'utf8')).toBe('mp3data');
+    nock('https://integration.spokephone.com')
+      .get('/calls/c1')
+      .query({ includeRecordingUrl: 'true' })
+      .reply(200, { id: 'c1', voicemail: { id: 'vm1', recordingUrl: 'https://r.example/vm1.wav' } });
+    nock('https://r.example').get('/vm1.wav').reply(200, Buffer.from('audio'));
+    const out = path.join(os.tmpdir(), `vm-${Date.now()}.wav`);
+    const r = await runCli(['voicemail', 'download', 'c1', '--output', out]);
+    expect(r.exitCode).toBe(0);
+    expect(fs.readFileSync(out).toString()).toBe('audio');
     fs.unlinkSync(out);
   });
 });

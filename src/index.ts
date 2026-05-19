@@ -23,14 +23,10 @@ export function buildProgram(): Command {
     .version('0.1.0', '-V, --version', 'Print spoke CLI version');
 
   // Configure exitOverride FIRST so all subcommands inherit it via copyInheritedSettings.
+  // We THROW on every callback (including help/version) — commander calls process.exit
+  // if the callback returns without throwing. The outer try/catch in main()/runCli()
+  // recognises the help/version codes and swallows them gracefully.
   program.exitOverride((err) => {
-    if (
-      err.code === 'commander.help' ||
-      err.code === 'commander.helpDisplayed' ||
-      err.code === 'commander.version'
-    ) {
-      return; // help/version printed normally
-    }
     throw err;
   });
 

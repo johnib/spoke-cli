@@ -16,10 +16,13 @@ export async function runSearch(
   await formatList(entries, {
     ...globalOpts(cmd),
     columns: [
-      { header: 'EXTENSION', get: (e) => e.extension ?? e.id ?? '' },
+      { header: 'EXTENSION', get: (e) => e.extension ?? '' },
       { header: 'NAME', get: (e) => e.displayName ?? '' },
-      { header: 'TYPE', get: (e) => (e.type === 'callGroup' ? 'group' : e.type ?? '') },
-      { header: 'STATUS', get: (e) => e.status ?? (e.available ? 'available' : 'unknown') },
+      { header: 'TYPE', get: (e) => (e.type === 'team' ? 'group' : e.type ?? '') },
+      {
+        header: 'AVAILABILITY',
+        get: (e) => e.availability?.availabilitySummary ?? e.availability?.status ?? '',
+      },
     ],
   });
 }
@@ -27,7 +30,7 @@ export async function runSearch(
 export function searchCommand(parent: Command): void {
   parent
     .command('search <query>')
-    .description('Search the directory')
+    .description('Search the directory by name, extension, or email substring')
     .option('--type <type>', 'Filter by type: user, group, device')
     .option('--available', 'Only available entries', false)
     .action(async function (this: Command, query: string, opts) {

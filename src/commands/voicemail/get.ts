@@ -10,12 +10,14 @@ export async function runGet(cmd: Command, id: string): Promise<void> {
     ...globalOpts(cmd),
     fields: [
       { label: 'ID', get: (x) => x.id ?? id },
-      { label: 'Recipient', get: (x) => x.recipientName ?? x.recipientId ?? '' },
+      { label: 'Call ID', get: (x) => x.callId },
       { label: 'From', get: (x) => x.from ?? '' },
-      { label: 'Duration', get: (x) => x.duration ?? 0 },
+      { label: 'Recipient', get: (x) => x.recipientName ?? x.recipient ?? '' },
+      { label: 'Duration', get: (x) => x.durationText ?? (x.duration ? `${x.duration}s` : '') },
       { label: 'Received', get: (x) => x.receivedAt ?? '' },
-      { label: 'Read', get: (x) => Boolean(x.read) },
-      { label: 'Transcript', get: (x) => x.transcript ?? '(not available)' },
+      { label: 'Recording URL', get: (x) => x.recordingUrl ?? '' },
+      { label: 'Transcription', get: (x) => x.transcription ?? '(not available)' },
+      { label: 'Confidence', get: (x) => x.transcriptionConfidence ?? '' },
     ],
   });
 }
@@ -23,7 +25,7 @@ export async function runGet(cmd: Command, id: string): Promise<void> {
 export function getCommand(parent: Command): void {
   parent
     .command('get <id>')
-    .description('Get a single voicemail')
+    .description('Get a single voicemail (accepts voicemail id or parent call id)')
     .action(async function (this: Command, id: string) {
       await runGet(this, id);
     });
