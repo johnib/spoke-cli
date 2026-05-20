@@ -24,6 +24,7 @@ export async function runAvailability(cmd: Command, id: string, opts: { watch?: 
     await tick();
     return;
   }
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     logger.out('\x1b[2J\x1b[H'); // clear screen
     await tick();

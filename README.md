@@ -1,14 +1,24 @@
 # spoke — Spoke Phone CLI
 
+[![npm version](https://img.shields.io/npm/v/@johnib/spoke-cli.svg)](https://www.npmjs.com/package/@johnib/spoke-cli)
+[![CI](https://github.com/johnib/spoke-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/johnib/spoke-cli/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/node/v/@johnib/spoke-cli.svg)](package.json)
+
 A GitHub-style command-line interface for [Spoke Phone](https://www.spokephone.com), plus a built-in MCP bridge that exposes the same surface to AI agents like Claude Code.
 
 Built against the [Spoke Developer API](https://developer.spokephone.com/) (OAuth2 client_credentials).
 
+> **Third-party, unofficial.** Not affiliated with Spoke Phone Inc.
+
 ## Quickstart
 
 ```bash
-# Install (once published)
-npm install -g @spoke-phone/cli
+# Try without installing
+npx @johnib/spoke-cli auth status
+
+# Or install globally
+npm install -g @johnib/spoke-cli
 
 # Authenticate
 spoke auth login --client-id $SPOKE_CLIENT_ID --client-secret $SPOKE_CLIENT_SECRET
@@ -127,7 +137,7 @@ Wire into Claude Code via `.mcp.json`:
   "mcpServers": {
     "spoke": {
       "command": "npx",
-      "args": ["@spoke-phone/cli", "mcp", "serve"],
+      "args": ["@johnib/spoke-cli", "mcp", "serve"],
       "env": {
         "SPOKE_CLIENT_ID": "${SPOKE_CLIENT_ID}",
         "SPOKE_CLIENT_SECRET": "${SPOKE_CLIENT_SECRET}"
@@ -155,6 +165,21 @@ The CLI handles these for you; documenting them in case you reach for `spoke api
 - **`/telephony/redirect` is a TwiML URL** that Twilio fetches when it routes a call — it's not a Spoke REST endpoint. Spoke's public API has no call-transfer / call-hangup endpoints. Use `spoke call twiml-url` to build the URL for your Twilio integration.
 - **Default `limit=100`, max `1000`.** Pagination is cursor-based: `meta.next` carries the next token, pass back as `?next=<token>`.
 - **Webhook signature:** `x-spoke-signature: sha256=<HMAC>` of `${ms_timestamp}.${body}`, 5-min window.
+
+## Versioning & releases
+
+Versions are managed automatically by [semantic-release](https://github.com/semantic-release/semantic-release) on every push to `main`.
+
+The next version is computed from [Conventional Commit](https://www.conventionalcommits.org/) messages since the last release:
+
+| Commit prefix | Version bump | Example |
+|---|---|---|
+| `fix(scope):` | patch | `1.2.3` → `1.2.4` |
+| `feat(scope):` | minor | `1.2.3` → `1.3.0` |
+| `feat!:` or `BREAKING CHANGE:` footer | major | `1.2.3` → `2.0.0` |
+| `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | none | (no release) |
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the auto-generated history.
 
 ## Development
 

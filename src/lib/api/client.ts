@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ActiveProfile, resolveActiveProfile } from '../auth/profiles';
 import { getToken, invalidateToken } from '../auth/oauth';
 import { fromHttpStatus, SpokeError } from '../errors';

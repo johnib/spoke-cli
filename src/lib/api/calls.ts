@@ -106,6 +106,7 @@ export async function listAll(
   const all: Call[] = [];
   let pageIdx = 0;
   let cursor: string | undefined = opts.next;
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const res = await client.get<ListResponse>('/calls', {
       includeActive: opts.includeActive,
