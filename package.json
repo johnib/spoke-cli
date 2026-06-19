@@ -57,7 +57,7 @@
     "axios": "^1.7.0",
     "chalk": "^4.1.2",
     "cli-table3": "^0.6.5",
-    "commander": "^12.1.0",
+    "commander": "^14.0.3",
     "jsonata": "^2.0.5",
     "localtunnel": "^2.0.2",
     "yaml": "^2.5.0"
